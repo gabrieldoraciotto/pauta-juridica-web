@@ -1,226 +1,787 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
-import { SectionTitle, Button, Card, Badge, Empty } from "@/components/ui";
+// Tela do Calendário editorial — Pauta Jurídica
+// Agendamento manual: a Sara escolhe os dias da semana em que publica, e arrasta
+// (no computador) ou toca (no celular) os roteiros aprovados para os dias válidos.
+// Sem limite de roteiros por dia — só os dias da semana é que são restritos.
 
-const WEEKDAY = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+import { useState, useEffect, useMemo, useCallback } from "react";
 
-function fmtDate(iso) {
-  const d = new Date(iso);
-  return {
-    weekday: WEEKDAY[d.getDay()],
-    day: d.getDate(),
-    month: d.toLocaleDateString("pt-BR", { month: "short" }).replace(".", ""),
-    isPast: d < new Date(new Date().toDateString()),
-  };
+const API = process.env.NEXT_PUBLIC_API_URL || "";
+
+const C = {
+  bg: "#F5F0E8",
+  bgAlt: "#E8DCC8",
+  card: "#FBF9F4",
+  green: "#1B4332",
+  greenSoft: "#2D5A45",
+  gold: "#C9A961",
+  goldDark: "#B07D3A",
+  ink: "#2A241E",
+  muted: "#8A7F6E",
+  blockedBg: "#EDE6D8",
+  line: "#E0D6C4",
+};
+
+const WEEKDAYS = [
+  { idx: 0, short: "Dom", long: "Domingo" },
+  { idx: 1, short: "Seg", long: "Segunda" },
+  { idx: 2, short: "Ter", long: "Terça" },
+  { idx: 3, short: "Qua", long: "Quarta" },
+  { idx: 4, short: "Qui", long: "Quinta" },
+  { idx: 5, short: "Sex", long: "Sexta" },
+  { idx: 6, short: "Sáb", long: "Sábado" },
+];
+
+const MONTHS = [
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+];
+
+// ---- helpers de data (tudo em UTC meio-dia, igual ao backend, p/ não virar o dia) ----
+function ymd(d) {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
-
-function Metric({ label, value, tone = "forest", hint }) {
-  const toneCls =
-    tone === "alert" ? "text-gold-deep" : tone === "gold" ? "text-gold-deep" : "text-forest";
-  return (
-    <Card className="flex flex-col">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
-        {label}
-      </span>
-      <span className={`mt-1 font-display text-4xl ${toneCls}`}>{value}</span>
-      {hint && <span className="mt-1 text-xs text-muted">{hint}</span>}
-    </Card>
-  );
+function dateAtNoon(y, m, day) {
+  return new Date(Date.UTC(y, m, day, 12, 0, 0));
 }
+const serif = { fontFamily: "Fraunces, Georgia, serif" };
+const sans = { fontFamily: "Mulish, system-ui, sans-serif" };
 
-export default function CalendarPage() {
-  const [slots, setSlots] = useState([]);
-  const [pending, setPending] = useState(0); // roteiros em rascunho
-  const [queue, setQueue] = useState(0); // aprovados ainda não agendados
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState("");
+export default function CalendarioPage() {
+  const [cadenceDays, setCadenceDays] = useState([]);
+  const [queue, setQueue] = useState([]); // roteiros aprovados (fila)
+  const [scheduled, setScheduled] = useState([]); // roteiros já agendados (/calendar)
+  const [pendingCount, setPendingCount] = useState(0); // rascunhos aguardando aprovação
+  const [view, setView] = useState(() => {
+    const n = new Date();
+    return { y: n.getUTCFullYear(), m: n.getUTCMonth() };
+  });
+  const [selectedId, setSelectedId] = useState(null); // card selecionado p/ toque
+  const [modal, setModal] = useState(null); // {type:'draft',draft} | {type:'day',dateStr,items}
+  const [dragOver, setDragOver] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [savingCadence, setSavingCadence] = useState(false);
+  const [msg, setMsg] = useState(null);
 
-  async function load() {
-    setLoading(true);
+  const loadAll = useCallback(async () => {
     try {
-      const [cal, rascunhos, aprovados] = await Promise.all([
-        api.calendar(),
-        api.drafts("rascunho"),
-        api.drafts("aprovado"),
+      const [s, q, cal, pend] = await Promise.all([
+        fetch(`${API}/settings`).then((r) => r.json()),
+        fetch(`${API}/drafts?status=aprovado`).then((r) => r.json()),
+        fetch(`${API}/calendar`).then((r) => r.json()),
+        fetch(`${API}/drafts?status=rascunho`).then((r) => r.json()),
       ]);
-      setSlots(cal);
-      setPending(rascunhos.length);
-      setQueue(aprovados.length);
+      setCadenceDays(Array.isArray(s?.cadenceDays) ? s.cadenceDays : []);
+      setQueue(Array.isArray(q) ? q : []);
+      setScheduled(Array.isArray(cal) ? cal : []);
+      setPendingCount(Array.isArray(pend) ? pend.length : 0);
     } catch (e) {
-      setMsg(`Não consegui falar com o servidor: ${e.message}`);
+      setMsg({ type: "error", text: "Não consegui falar com o servidor. Ele está no ar?" });
     } finally {
       setLoading(false);
     }
-  }
-
-  useEffect(() => {
-    load();
   }, []);
 
-  async function run(fn, label) {
+  useEffect(() => {
+    loadAll();
+  }, [loadAll]);
+
+  useEffect(() => {
+    if (!msg) return;
+    const t = setTimeout(() => setMsg(null), 5000);
+    return () => clearTimeout(t);
+  }, [msg]);
+
+  // ---- ações ----
+  async function scheduleDraft(id, dateStr) {
+    if (!id || busy) return;
     setBusy(true);
-    setMsg("");
     try {
-      await fn();
-      setMsg(label);
-      await load();
-    } catch (e) {
-      setMsg(`Erro: ${e.message}`);
+      const res = await fetch(`${API}/drafts/${id}/schedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: dateStr }),
+      });
+      if (res.status === 409) {
+        setMsg({ type: "error", text: "Esse dia não é um dia de publicação." });
+        return;
+      }
+      if (!res.ok) {
+        setMsg({ type: "error", text: "Não consegui agendar. Tente de novo." });
+        return;
+      }
+      setSelectedId(null);
+      await loadAll();
     } finally {
       setBusy(false);
     }
   }
 
-  const futuros = slots.filter((s) => !fmtDate(s.date).isPast);
-  const vagosFuturos = futuros.filter((s) => s.status === "vago").length;
-  const publicados = slots.filter((s) => s.status === "publicado").length;
+  async function unschedule(id) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await fetch(`${API}/drafts/${id}/unschedule`, { method: "POST" });
+      setModal(null);
+      await loadAll();
+      setMsg({ type: "info", text: "Roteiro devolvido para a fila." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function publish(id) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await fetch(`${API}/drafts/${id}/publish`, { method: "POST" });
+      setModal(null);
+      await loadAll();
+      setMsg({ type: "info", text: "Roteiro marcado como publicado." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveCadence(newDays) {
+    setSavingCadence(true);
+    try {
+      const res = await fetch(`${API}/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cadenceDays: newDays }),
+      });
+      const data = await res.json();
+      setCadenceDays(Array.isArray(data?.cadenceDays) ? data.cadenceDays : newDays);
+      if (data?.devolvidos > 0) {
+        setMsg({
+          type: "info",
+          text: `${data.devolvidos} roteiro(s) voltaram para a fila porque o dia deixou de ser de publicação.`,
+        });
+      }
+      await loadAll();
+    } catch (e) {
+      setMsg({ type: "error", text: "Não consegui salvar os dias de publicação." });
+    } finally {
+      setSavingCadence(false);
+    }
+  }
+
+  function toggleDay(idx) {
+    if (savingCadence) return;
+    const has = cadenceDays.includes(idx);
+    const next = has
+      ? cadenceDays.filter((d) => d !== idx)
+      : [...cadenceDays, idx].sort((a, b) => a - b);
+    saveCadence(next);
+  }
+
+  // ---- grade do mês ----
+  const grid = useMemo(() => {
+    const { y, m } = view;
+    const first = dateAtNoon(y, m, 1);
+    const startWeekday = first.getUTCDay();
+    const cells = [];
+    for (let i = 0; i < startWeekday; i++) {
+      cells.push({ d: dateAtNoon(y, m, 1 - (startWeekday - i)), inMonth: false });
+    }
+    const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    for (let day = 1; day <= daysInMonth; day++) {
+      cells.push({ d: dateAtNoon(y, m, day), inMonth: true });
+    }
+    while (cells.length % 7 !== 0) {
+      const last = cells[cells.length - 1].d;
+      const nd = new Date(last);
+      nd.setUTCDate(nd.getUTCDate() + 1);
+      cells.push({ d: nd, inMonth: false });
+    }
+    return cells;
+  }, [view]);
+
+  const byDay = useMemo(() => {
+    const map = {};
+    for (const dr of scheduled) {
+      if (!dr.scheduledDate) continue;
+      const key = ymd(new Date(dr.scheduledDate));
+      (map[key] ||= []).push(dr);
+    }
+    return map;
+  }, [scheduled]);
+
+  const todayStr = ymd(new Date());
+
+  const agendadosCount = scheduled.filter((d) => d.status === "agendado").length;
+  const publicadosCount = scheduled.filter((d) => d.status === "publicado").length;
+
+  const proximoDiaLivre = useMemo(() => {
+    if (cadenceDays.length === 0) return null;
+    const base = new Date();
+    for (let i = 0; i < 90; i++) {
+      const d = dateAtNoon(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate() + i);
+      if (cadenceDays.includes(d.getUTCDay()) && !(byDay[ymd(d)]?.length)) {
+        return d;
+      }
+    }
+    return null;
+  }, [cadenceDays, byDay]);
+
+  function prevMonth() {
+    setView((v) => (v.m === 0 ? { y: v.y - 1, m: 11 } : { y: v.y, m: v.m - 1 }));
+  }
+  function nextMonth() {
+    setView((v) => (v.m === 11 ? { y: v.y + 1, m: 0 } : { y: v.y, m: v.m + 1 }));
+  }
+
+  function onCellClick(cell, isValid) {
+    if (!cell.inMonth || !isValid) return;
+    const dateStr = ymd(cell.d);
+    if (selectedId) {
+      scheduleDraft(selectedId, dateStr);
+      return;
+    }
+    const items = byDay[dateStr] || [];
+    if (items.length > 0) {
+      setModal({ type: "day", dateStr, items });
+    }
+  }
 
   return (
-    <div className="rise">
-      <SectionTitle kicker="Visão geral" title="Calendário editorial">
-        <div className="flex gap-2">
-          <Button
-            variant="ghost"
-            disabled={busy}
-            onClick={() => run(api.ingest, "Notícias coletadas.")}
-          >
-            Coletar notícias
-          </Button>
-          <Button
-            variant="primary"
-            disabled={busy}
-            onClick={() => run(api.syncCalendar, "Agenda sincronizada.")}
-          >
-            Sincronizar agenda
-          </Button>
+    <div style={{ backgroundColor: C.bg, minHeight: "100vh", color: C.ink, ...sans }}>
+      {msg && <Toast msg={msg} onClose={() => setMsg(null)} />}
+
+      <div className="max-w-7xl mx-auto px-4 py-6 lg:px-8 lg:py-10">
+        {/* Cabeçalho */}
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
+          <div>
+            <p style={{ color: C.goldDark, letterSpacing: "0.12em" }} className="text-xs font-semibold uppercase mb-1">
+              Planejamento
+            </p>
+            <h1 style={{ ...serif, color: C.green }} className="text-3xl lg:text-4xl font-semibold">
+              Calendário editorial
+            </h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={prevMonth}
+              style={{ backgroundColor: C.card, borderColor: C.line, color: C.green }}
+              className="border rounded-lg w-10 h-10 text-lg leading-none hover:opacity-80"
+              aria-label="Mês anterior"
+            >
+              ‹
+            </button>
+            <div style={{ ...serif, color: C.ink }} className="text-lg font-semibold min-w-[170px] text-center">
+              {MONTHS[view.m]} {view.y}
+            </div>
+            <button
+              onClick={nextMonth}
+              style={{ backgroundColor: C.card, borderColor: C.line, color: C.green }}
+              className="border rounded-lg w-10 h-10 text-lg leading-none hover:opacity-80"
+              aria-label="Próximo mês"
+            >
+              ›
+            </button>
+          </div>
         </div>
-      </SectionTitle>
 
-      {msg && (
-        <p className="mb-5 rounded-xl border border-cream-deep bg-cream-card px-4 py-2 text-sm text-muted">
-          {msg}
-        </p>
-      )}
+        {/* Seletor de dias de publicação */}
+        <div
+          style={{ backgroundColor: C.card, borderColor: C.line }}
+          className="border rounded-2xl p-4 lg:p-5 mb-5"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="shrink-0">
+              <p style={{ color: C.green }} className="font-semibold">
+                Dias de publicação
+              </p>
+              <p style={{ color: C.muted }} className="text-xs">
+                Os outros dias ficam bloqueados no calendário.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 sm:ml-auto">
+              {WEEKDAYS.map((w) => {
+                const on = cadenceDays.includes(w.idx);
+                return (
+                  <button
+                    key={w.idx}
+                    onClick={() => toggleDay(w.idx)}
+                    disabled={savingCadence}
+                    style={{
+                      backgroundColor: on ? C.green : "transparent",
+                      color: on ? "#fff" : C.muted,
+                      borderColor: on ? C.green : C.line,
+                      opacity: savingCadence ? 0.6 : 1,
+                    }}
+                    className="border rounded-lg px-3 py-2 text-sm font-semibold transition-colors min-w-[52px]"
+                  >
+                    {w.short}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
 
-      <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Metric label="Aguardando aprovação" value={pending} tone="gold" hint="roteiros em rascunho" />
-        <Metric label="Estoque na fila" value={queue} hint="aprovados, prontos p/ agendar" />
-        <Metric
-          label="Datas sem roteiro"
-          value={vagosFuturos}
-          tone={vagosFuturos > 0 ? "alert" : "forest"}
-          hint={vagosFuturos > 0 ? "risco de furo na cadência" : "tudo coberto"}
-        />
-        <Metric label="Publicados" value={publicados} hint="já no ar" />
+        {/* Faixa de roteiros prontos (fila) */}
+        <div
+          style={{ backgroundColor: C.bgAlt, borderColor: C.line }}
+          className="border rounded-2xl p-4 mb-5"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <p style={{ color: C.green }} className="font-semibold">
+              Roteiros prontos para agendar{" "}
+              <span style={{ color: C.muted }} className="font-normal">
+                ({queue.length})
+              </span>
+            </p>
+            {selectedId && (
+              <button
+                onClick={() => setSelectedId(null)}
+                style={{ color: C.goldDark }}
+                className="text-sm font-semibold underline"
+              >
+                cancelar seleção
+              </button>
+            )}
+          </div>
+
+          {selectedId && (
+            <p
+              style={{ color: C.goldDark, backgroundColor: "#FBF3E0", borderColor: C.gold }}
+              className="border rounded-lg px-3 py-2 text-sm mb-3"
+            >
+              Roteiro selecionado. Toque num dia disponível do calendário para agendar.
+            </p>
+          )}
+
+          {loading ? (
+            <p style={{ color: C.muted }} className="text-sm py-2">Carregando…</p>
+          ) : queue.length === 0 ? (
+            <p style={{ color: C.muted }} className="text-sm py-2">
+              Nenhum roteiro aprovado na fila. Aprove roteiros na aba Roteiros para que apareçam aqui.
+            </p>
+          ) : (
+            <div className="flex gap-3 overflow-x-auto pb-1">
+              {queue.map((dr) => (
+                <QueueCard
+                  key={dr.id}
+                  draft={dr}
+                  selected={selectedId === dr.id}
+                  onSelect={() => setSelectedId(selectedId === dr.id ? null : dr.id)}
+                  onView={() => setModal({ type: "draft", draft: dr })}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Calendário + Dashboard */}
+        <div className="flex flex-col lg:flex-row gap-5">
+          {/* Grade */}
+          <div
+            style={{ backgroundColor: C.card, borderColor: C.line }}
+            className="border rounded-2xl p-3 lg:p-4 flex-1 min-w-0"
+          >
+            <div className="grid grid-cols-7 gap-1 lg:gap-2 mb-1">
+              {WEEKDAYS.map((w) => (
+                <div
+                  key={w.idx}
+                  style={{ color: cadenceDays.includes(w.idx) ? C.green : C.muted }}
+                  className="text-center text-[11px] lg:text-xs font-semibold uppercase py-1"
+                >
+                  <span className="lg:hidden">{w.short}</span>
+                  <span className="hidden lg:inline">{w.long}</span>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-1 lg:gap-2">
+              {grid.map((cell, i) => {
+                const dateStr = ymd(cell.d);
+                const weekday = cell.d.getUTCDay();
+                const isValid = cadenceDays.includes(weekday);
+                const items = byDay[dateStr] || [];
+                const isToday = dateStr === todayStr;
+                const droppable = cell.inMonth && isValid;
+                const isDragOver = dragOver === dateStr;
+
+                return (
+                  <div
+                    key={i}
+                    onClick={() => onCellClick(cell, isValid)}
+                    onDragOver={(e) => {
+                      if (droppable) {
+                        e.preventDefault();
+                        setDragOver(dateStr);
+                      }
+                    }}
+                    onDragLeave={() => setDragOver((p) => (p === dateStr ? null : p))}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOver(null);
+                      if (!droppable) return;
+                      const id = e.dataTransfer.getData("text/plain");
+                      if (id) scheduleDraft(id, dateStr);
+                    }}
+                    style={{
+                      backgroundColor: !cell.inMonth
+                        ? "transparent"
+                        : isValid
+                        ? isDragOver
+                          ? "#EAF2EC"
+                          : C.bg
+                        : C.blockedBg,
+                      borderColor: isDragOver ? C.green : isToday ? C.gold : C.line,
+                      borderWidth: isDragOver || isToday ? 2 : 1,
+                      opacity: cell.inMonth ? 1 : 0.4,
+                      cursor: droppable && (selectedId || items.length) ? "pointer" : "default",
+                      minHeight: "76px",
+                    }}
+                    className="border rounded-lg p-1.5 lg:p-2 relative transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span
+                        style={{ color: isValid && cell.inMonth ? C.ink : C.muted }}
+                        className="text-xs lg:text-sm font-semibold"
+                      >
+                        {cell.d.getUTCDate()}
+                      </span>
+                      {!isValid && cell.inMonth && (
+                        <span style={{ color: C.muted }} className="text-[9px] hidden lg:inline">
+                          bloqueado
+                        </span>
+                      )}
+                    </div>
+
+                    {/* desktop: mini-cards */}
+                    {cell.inMonth && items.length > 0 && (
+                      <div className="mt-1 hidden lg:flex flex-col gap-1">
+                        {items.slice(0, 2).map((dr) => (
+                          <MiniCard
+                            key={dr.id}
+                            draft={dr}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setModal({ type: "draft", draft: dr });
+                            }}
+                          />
+                        ))}
+                        {items.length > 2 && (
+                          <span style={{ color: C.goldDark }} className="text-[10px] font-semibold pl-0.5">
+                            +{items.length - 2} mais
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* mobile: contador */}
+                    {cell.inMonth && items.length > 0 && (
+                      <div className="mt-1 lg:hidden">
+                        <span
+                          style={{ backgroundColor: C.green, color: "#fff" }}
+                          className="inline-block rounded-full text-[10px] font-bold px-1.5 py-0.5"
+                        >
+                          {items.length}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Dashboard */}
+          <div className="w-full lg:w-72 shrink-0 flex flex-col gap-3">
+            <Metric label="Aguardando aprovação" value={pendingCount} color={C.goldDark} />
+            <Metric label="Prontos na fila" value={queue.length} color={C.green} />
+            <Metric label="Agendados" value={agendadosCount} color={C.greenSoft} />
+            <Metric label="Publicados" value={publicadosCount} color={C.muted} />
+
+            <div
+              style={{ backgroundColor: C.card, borderColor: C.line }}
+              className="border rounded-2xl p-4"
+            >
+              <p style={{ color: C.muted }} className="text-xs uppercase font-semibold mb-1">
+                Próximo dia livre
+              </p>
+              <p style={{ ...serif, color: C.green }} className="text-lg font-semibold">
+                {proximoDiaLivre
+                  ? `${WEEKDAYS[proximoDiaLivre.getUTCDay()].short}, ${proximoDiaLivre.getUTCDate()} ${MONTHS[
+                      proximoDiaLivre.getUTCMonth()
+                    ].slice(0, 3).toLowerCase()}`
+                  : "—"}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <h2 className="mb-4 font-display text-lg text-forest">Próximas datas</h2>
-
-      {loading ? (
-        <Empty>Carregando…</Empty>
-      ) : futuros.length === 0 ? (
-        <Empty>
-          Nenhuma data gerada ainda. Clique em <strong>Sincronizar agenda</strong> para criar os
-          slots da cadência.
-        </Empty>
-      ) : (
-        <div className="space-y-3">
-          {futuros.map((slot) => (
-            <SlotRow key={slot.id} slot={slot} onPublish={() => run(() => api.publish(slot.id), "Marcado como publicado.")} />
-          ))}
-        </div>
+      {/* Modais */}
+      {modal?.type === "draft" && (
+        <DraftModal
+          draft={modal.draft}
+          busy={busy}
+          onClose={() => setModal(null)}
+          onUnschedule={() => unschedule(modal.draft.id)}
+          onPublish={() => publish(modal.draft.id)}
+        />
+      )}
+      {modal?.type === "day" && (
+        <DayModal
+          dateStr={modal.dateStr}
+          items={modal.items}
+          onClose={() => setModal(null)}
+          onOpenDraft={(dr) => setModal({ type: "draft", draft: dr })}
+        />
       )}
     </div>
   );
 }
 
-function SlotRow({ slot, onPublish }) {
-  const [open, setOpen] = useState(false);
-  const d = fmtDate(slot.date);
-  const vago = slot.status === "vago";
-  const draft = slot.draft;
+// ---------- subcomponentes ----------
 
+function formatBadgeStyle(format) {
+  return format === "carrossel"
+    ? { backgroundColor: "#FBF3E0", color: C.goldDark, label: "Carrossel" }
+    : { backgroundColor: "#E6EFEA", color: C.green, label: "Reel" };
+}
+
+function QueueCard({ draft, selected, onSelect, onView }) {
+  const b = formatBadgeStyle(draft.format);
   return (
     <div
-      onClick={() => {
-        if (!vago) setOpen((v) => !v);
+      draggable
+      onDragStart={(e) => e.dataTransfer.setData("text/plain", draft.id)}
+      onClick={onSelect}
+      style={{
+        backgroundColor: C.card,
+        borderColor: selected ? C.green : C.line,
+        borderWidth: selected ? 2 : 1,
+        width: "210px",
       }}
-      className={`rounded-2xl border bg-cream-card p-4 shadow-card transition-shadow ${
-        vago
-          ? "border-dashed border-gold/70"
-          : "cursor-pointer border-cream-deep/60 hover:shadow-lift"
-      }`}
+      className="border rounded-xl p-3 shrink-0 cursor-grab active:cursor-grabbing"
+      title="Arraste para um dia, ou toque para selecionar"
     >
-      <div className="flex items-stretch gap-4">
-        <div className="flex w-16 flex-col items-center justify-center rounded-xl bg-forest py-2 text-cream">
-          <span className="text-[10px] uppercase tracking-widest text-cream/60">{d.weekday}</span>
-          <span className="font-display text-2xl leading-none">{d.day}</span>
-          <span className="text-[10px] uppercase text-cream/60">{d.month}</span>
+      <div className="flex items-center justify-between mb-1.5">
+        <span
+          style={{ backgroundColor: b.backgroundColor, color: b.color }}
+          className="text-[10px] font-bold uppercase rounded px-1.5 py-0.5"
+        >
+          {b.label}
+        </span>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onView();
+          }}
+          style={{ color: C.goldDark }}
+          className="text-[11px] font-semibold underline"
+        >
+          ver
+        </button>
+      </div>
+      <p style={{ color: C.muted }} className="text-[10px] mb-1 truncate">
+        {draft.article?.source?.name || "—"}
+      </p>
+      <p style={{ color: C.ink }} className="text-sm font-medium leading-snug line-clamp-3">
+        {draft.hook}
+      </p>
+    </div>
+  );
+}
+
+function MiniCard({ draft, onClick }) {
+  const b = formatBadgeStyle(draft.format);
+  const published = draft.status === "publicado";
+  return (
+    <div
+      draggable
+      onDragStart={(e) => {
+        e.stopPropagation();
+        e.dataTransfer.setData("text/plain", draft.id);
+      }}
+      onClick={onClick}
+      style={{
+        backgroundColor: published ? "#EDEFEA" : b.backgroundColor,
+        borderColor: C.line,
+        opacity: published ? 0.75 : 1,
+      }}
+      className="border rounded px-1.5 py-1 cursor-pointer"
+      title={draft.hook}
+    >
+      <p style={{ color: published ? C.muted : b.color }} className="text-[10px] font-semibold leading-tight line-clamp-2">
+        {published ? "✓ " : ""}
+        {draft.hook}
+      </p>
+    </div>
+  );
+}
+
+function Metric({ label, value, color }) {
+  return (
+    <div style={{ backgroundColor: C.card, borderColor: C.line }} className="border rounded-2xl p-4">
+      <p style={{ color: C.muted }} className="text-xs uppercase font-semibold mb-1">
+        {label}
+      </p>
+      <p style={{ ...serif, color }} className="text-3xl font-semibold">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function Overlay({ children, onClose }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{ backgroundColor: "rgba(42,36,30,0.45)" }}
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ backgroundColor: C.card }}
+        className="w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl max-h-[85vh] overflow-y-auto"
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function DraftModal({ draft, busy, onClose, onUnschedule, onPublish }) {
+  const b = formatBadgeStyle(draft.format);
+  const isScheduled = draft.status === "agendado" || draft.status === "publicado";
+  return (
+    <Overlay onClose={onClose}>
+      <div className="p-5">
+        <div className="flex items-center justify-between mb-3">
+          <span
+            style={{ backgroundColor: b.backgroundColor, color: b.color }}
+            className="text-[11px] font-bold uppercase rounded px-2 py-1"
+          >
+            {b.label}
+          </span>
+          <button onClick={onClose} style={{ color: C.muted }} className="text-2xl leading-none">
+            ×
+          </button>
         </div>
 
-        <div className="flex flex-1 flex-col justify-center">
-          {vago ? (
-            <p className="text-sm text-gold-deep">
-              <strong>Data vaga.</strong> Aprove um roteiro para preencher este espaço.
-            </p>
-          ) : (
-            <>
-              <div className="mb-1 flex items-center gap-2">
-                <Badge status={slot.status} />
-                <span className="text-xs text-muted">
-                  {draft?.format === "carrossel" ? "Carrossel" : "Reel"}
-                  {draft?.article?.source ? ` · ${draft.article.source.name}` : ""}
-                </span>
-              </div>
-              <p className="font-display text-base text-ink">{draft?.hook}</p>
-            </>
-          )}
-        </div>
+        <p style={{ color: C.muted }} className="text-xs mb-3">
+          {draft.article?.source?.name || "—"}
+          {draft.article?.title ? ` · ${draft.article.title}` : ""}
+        </p>
 
-        {!vago && (
-          <div className="flex items-center gap-3">
-            {slot.status !== "publicado" && (
-              <Button
-                variant="gold"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onPublish();
-                }}
+        <p style={{ color: C.muted }} className="text-[11px] uppercase font-semibold mb-1">Gancho</p>
+        <p style={{ ...serif, color: C.green }} className="text-lg font-semibold mb-4 leading-snug">
+          {draft.hook}
+        </p>
+
+        <p style={{ color: C.muted }} className="text-[11px] uppercase font-semibold mb-1">Roteiro</p>
+        <p style={{ color: C.ink }} className="text-sm whitespace-pre-wrap leading-relaxed mb-4">
+          {draft.script}
+        </p>
+
+        <p style={{ color: C.muted }} className="text-[11px] uppercase font-semibold mb-1">Legenda</p>
+        <p style={{ color: C.ink }} className="text-sm whitespace-pre-wrap leading-relaxed mb-5">
+          {draft.caption}
+        </p>
+
+        {isScheduled ? (
+          <div className="flex flex-col sm:flex-row gap-2">
+            {draft.status !== "publicado" && (
+              <button
+                onClick={onPublish}
+                disabled={busy}
+                style={{ backgroundColor: C.green, color: "#fff", opacity: busy ? 0.6 : 1 }}
+                className="rounded-lg px-4 py-2.5 font-semibold flex-1"
               >
-                Publicado
-              </Button>
+                Marcar como publicado
+              </button>
             )}
-            <span className="select-none text-sm text-muted">
-              {open ? "ocultar ▴" : "ver roteiro ▾"}
-            </span>
+            <button
+              onClick={onUnschedule}
+              disabled={busy}
+              style={{ borderColor: C.goldDark, color: C.goldDark, opacity: busy ? 0.6 : 1 }}
+              className="border rounded-lg px-4 py-2.5 font-semibold flex-1"
+            >
+              Devolver para a fila
+            </button>
           </div>
+        ) : (
+          <p style={{ color: C.muted }} className="text-xs">
+            Arraste este roteiro para um dia do calendário (ou toque nele e depois num dia) para agendar.
+          </p>
         )}
       </div>
+    </Overlay>
+  );
+}
 
-      {!vago && open && draft && (
-        <div
-          className="mt-4 border-t border-cream-deep/50 pt-4"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gold-deep">
-            Roteiro
-          </p>
-          <p className="whitespace-pre-wrap text-sm text-ink">{draft.script}</p>
-          {draft.caption && (
-            <>
-              <p className="mb-1 mt-4 text-[11px] font-semibold uppercase tracking-wide text-gold-deep">
-                Legenda
-              </p>
-              <p className="whitespace-pre-wrap rounded-xl bg-cream-deep/40 p-3 text-sm text-muted">
-                {draft.caption}
-              </p>
-            </>
-          )}
+function DayModal({ dateStr, items, onClose, onOpenDraft }) {
+  const [y, m, d] = dateStr.split("-").map((n) => parseInt(n, 10));
+  const dateObj = dateAtNoon(y, m - 1, d);
+  return (
+    <Overlay onClose={onClose}>
+      <div className="p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 style={{ ...serif, color: C.green }} className="text-xl font-semibold">
+            {WEEKDAYS[dateObj.getUTCDay()].long}, {d} de {MONTHS[m - 1]}
+          </h3>
+          <button onClick={onClose} style={{ color: C.muted }} className="text-2xl leading-none">
+            ×
+          </button>
         </div>
-      )}
+        <div className="flex flex-col gap-2">
+          {items.map((dr) => {
+            const b = formatBadgeStyle(dr.format);
+            const published = dr.status === "publicado";
+            return (
+              <button
+                key={dr.id}
+                onClick={() => onOpenDraft(dr)}
+                style={{ backgroundColor: C.bg, borderColor: C.line }}
+                className="border rounded-xl p-3 text-left"
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span
+                    style={{ backgroundColor: b.backgroundColor, color: b.color }}
+                    className="text-[10px] font-bold uppercase rounded px-1.5 py-0.5"
+                  >
+                    {b.label}
+                  </span>
+                  {published && (
+                    <span style={{ color: C.muted }} className="text-[10px] font-semibold">
+                      ✓ publicado
+                    </span>
+                  )}
+                </div>
+                <p style={{ color: C.ink }} className="text-sm font-medium leading-snug">
+                  {dr.hook}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </Overlay>
+  );
+}
+
+function Toast({ msg, onClose }) {
+  const bg = msg.type === "error" ? "#7A2E2E" : C.green;
+  return (
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] px-2 w-full max-w-md">
+      <div
+        onClick={onClose}
+        style={{ backgroundColor: bg, color: "#fff" }}
+        className="rounded-xl px-4 py-3 shadow-lg text-sm cursor-pointer"
+      >
+        {msg.text}
+      </div>
     </div>
   );
 }
