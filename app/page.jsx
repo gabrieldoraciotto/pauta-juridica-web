@@ -138,49 +138,87 @@ export default function CalendarPage() {
 }
 
 function SlotRow({ slot, onPublish }) {
+  const [open, setOpen] = useState(false);
   const d = fmtDate(slot.date);
   const vago = slot.status === "vago";
   const draft = slot.draft;
 
   return (
     <div
-      className={`flex items-stretch gap-4 rounded-2xl border bg-cream-card p-4 shadow-card ${
-        vago ? "border-dashed border-gold/70" : "border-cream-deep/60"
+      onClick={() => {
+        if (!vago) setOpen((v) => !v);
+      }}
+      className={`rounded-2xl border bg-cream-card p-4 shadow-card transition-shadow ${
+        vago
+          ? "border-dashed border-gold/70"
+          : "cursor-pointer border-cream-deep/60 hover:shadow-lift"
       }`}
     >
-      {/* data */}
-      <div className="flex w-16 flex-col items-center justify-center rounded-xl bg-forest py-2 text-cream">
-        <span className="text-[10px] uppercase tracking-widest text-cream/60">{d.weekday}</span>
-        <span className="font-display text-2xl leading-none">{d.day}</span>
-        <span className="text-[10px] uppercase text-cream/60">{d.month}</span>
-      </div>
+      <div className="flex items-stretch gap-4">
+        <div className="flex w-16 flex-col items-center justify-center rounded-xl bg-forest py-2 text-cream">
+          <span className="text-[10px] uppercase tracking-widest text-cream/60">{d.weekday}</span>
+          <span className="font-display text-2xl leading-none">{d.day}</span>
+          <span className="text-[10px] uppercase text-cream/60">{d.month}</span>
+        </div>
 
-      {/* conteúdo */}
-      <div className="flex flex-1 flex-col justify-center">
-        {vago ? (
-          <p className="text-sm text-gold-deep">
-            <strong>Data vaga.</strong> Aprove um roteiro para preencher este espaço.
-          </p>
-        ) : (
-          <>
-            <div className="mb-1 flex items-center gap-2">
-              <Badge status={slot.status} />
-              <span className="text-xs text-muted">
-                {draft?.format === "carrossel" ? "Carrossel" : "Reel"}
-                {draft?.article?.source ? ` · ${draft.article.source.name}` : ""}
-              </span>
-            </div>
-            <p className="font-display text-base text-ink">{draft?.hook}</p>
-          </>
+        <div className="flex flex-1 flex-col justify-center">
+          {vago ? (
+            <p className="text-sm text-gold-deep">
+              <strong>Data vaga.</strong> Aprove um roteiro para preencher este espaço.
+            </p>
+          ) : (
+            <>
+              <div className="mb-1 flex items-center gap-2">
+                <Badge status={slot.status} />
+                <span className="text-xs text-muted">
+                  {draft?.format === "carrossel" ? "Carrossel" : "Reel"}
+                  {draft?.article?.source ? ` · ${draft.article.source.name}` : ""}
+                </span>
+              </div>
+              <p className="font-display text-base text-ink">{draft?.hook}</p>
+            </>
+          )}
+        </div>
+
+        {!vago && (
+          <div className="flex items-center gap-3">
+            {slot.status !== "publicado" && (
+              <Button
+                variant="gold"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPublish();
+                }}
+              >
+                Publicado
+              </Button>
+            )}
+            <span className="select-none text-sm text-muted">
+              {open ? "ocultar ▴" : "ver roteiro ▾"}
+            </span>
+          </div>
         )}
       </div>
 
-      {/* ação */}
-      {!vago && slot.status !== "publicado" && (
-        <div className="flex items-center">
-          <Button variant="gold" onClick={onPublish}>
-            Publicado
-          </Button>
+      {!vago && open && draft && (
+        <div
+          className="mt-4 border-t border-cream-deep/50 pt-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gold-deep">
+            Roteiro
+          </p>
+          <p className="whitespace-pre-wrap text-sm text-ink">{draft.script}</p>
+          {draft.caption && (
+            <>
+              <p className="mb-1 mt-4 text-[11px] font-semibold uppercase tracking-wide text-gold-deep">
+                Legenda
+              </p>
+              <p className="whitespace-pre-wrap rounded-xl bg-cream-deep/40 p-3 text-sm text-muted">
+                {draft.caption}
+              </p>
+            </>
+          )}
         </div>
       )}
     </div>
