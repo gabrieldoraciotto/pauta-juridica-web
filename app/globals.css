@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  background-color: #f5f0e8;
+  /* textura sutil de papel: pontilhado quase imperceptível sobre o creme */
+  background-image: radial-gradient(rgba(42, 36, 30, 0.025) 1px, transparent 1px);
+  background-size: 22px 22px;
+  color: #2a241e;
+}
+
+/* filete dourado decorativo usado em títulos de seção */
+.rule-gold {
+  height: 2px;
+  background: linear-gradient(90deg, #c9a961, rgba(201, 169, 97, 0));
+}
+
+/* aparição suave e escalonada no carregamento */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise {
+  animation: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* scrollbar discreta no tom da marca */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #d8cbb4;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
