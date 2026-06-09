@@ -17,6 +17,10 @@ export default function RoteirosPage() {
   const [fixBusy, setFixBusy] = useState(null); // id gerando versão corrigida
   const [partBusy, setPartBusy] = useState(null); // "hook" | "script" | "caption" em geração
   const [scriptDurOpen, setScriptDurOpen] = useState(false); // opções de duração do roteiro
+  const [newOpen, setNewOpen] = useState(false); // painel de pauta própria aberto
+  const [newTopic, setNewTopic] = useState(""); // tema digitado
+  const [newFormat, setNewFormat] = useState("reel"); // formato da pauta própria
+  const [newBusy, setNewBusy] = useState(false); // gerando pauta própria
 
   async function load() {
     setLoading(true);
@@ -83,6 +87,32 @@ export default function RoteirosPage() {
     }
   }
 
+  // Cria um roteiro a partir de um tema livre (pauta própria).
+  async function createTopic() {
+    const topic = newTopic.trim();
+    if (!topic) {
+      setMsg("Escreva o tema do roteiro.");
+      return;
+    }
+    setNewBusy(true);
+    setMsg("");
+    try {
+      await api.createFromTopic({ topic, format: newFormat });
+      setMsg("Roteiro de pauta própria gerado e verificado.");
+      setNewTopic("");
+      setNewOpen(false);
+      if (filter === "rascunho") {
+        await load();
+      } else {
+        setFilter("rascunho"); // mostra o roteiro recém-criado (status rascunho)
+      }
+    } catch (e) {
+      setMsg(`Erro ao gerar: ${e.message}`);
+    } finally {
+      setNewBusy(false);
+    }
+  }
+
   // Gera uma versão corrigida ajustando os pontos apontados pela verificação da OAB.
   async function fixOab(id) {
     setFixBusy(id);
@@ -115,10 +145,72 @@ export default function RoteirosPage() {
   return (
     <div className="rise">
       <SectionTitle kicker="Produção" title="Roteiros">
+        <Button variant="primary" onClick={() => setNewOpen((v) => !v)}>
+          {newOpen ? "Fechar" : "Nova pauta"}
+        </Button>
         <Button variant="ghost" onClick={load}>
           Atualizar
         </Button>
       </SectionTitle>
+
+      {newOpen && (
+        <div className="mb-6">
+          <Card>
+            <div className="space-y-3">
+              <div>
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gold-deep">
+                  Nova pauta própria
+                </span>
+                <textarea
+                  value={newTopic}
+                  rows={3}
+                  onChange={(e) => setNewTopic(e.target.value)}
+                  placeholder="Sobre o que é o roteiro? Ex.: como funciona o auxílio-doença; o que é o BPC/LOAS; dúvidas comuns sobre tempo de contribuição…"
+                  className="w-full rounded-xl border border-cream-deep bg-cream px-3 py-2 text-sm text-ink outline-none focus:border-forest"
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted">Formato:</span>
+                {[
+                  { key: "reel", label: "Reel" },
+                  { key: "carrossel", label: "Carrossel" },
+                ].map((f) => (
+                  <button
+                    key={f.key}
+                    onClick={() => setNewFormat(f.key)}
+                    className={`rounded-full px-3.5 py-1.5 text-sm transition-colors ${
+                      newFormat === f.key
+                        ? "bg-forest text-cream"
+                        : "border border-cream-deep text-forest hover:bg-cream-deep/40"
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Button variant="primary" disabled={newBusy} onClick={createTopic}>
+                  {newBusy ? "Gerando…" : "Gerar roteiro"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={newBusy}
+                  onClick={() => {
+                    setNewOpen(false);
+                    setNewTopic("");
+                  }}
+                >
+                  cancelar
+                </Button>
+              </div>
+              <p className="text-xs text-muted">
+                A IA cria o roteiro sobre o tema, de forma geral e educativa, e já passa pela
+                verificação da OAB — igual aos roteiros de notícia.
+              </p>
+            </div>
+          </Card>
+        </div>
+      )}
 
       <div className="mb-6 flex flex-wrap gap-2">
         {filtros.map((f) => (
@@ -156,7 +248,11 @@ export default function RoteirosPage() {
                   <Badge status={d.status} />
                   <span className="text-xs text-muted">
                     {d.format === "carrossel" ? "Carrossel" : "Reel"}
-                    {d.article?.source ? ` · ${d.article.source.name}` : ""}
+                    {d.article?.source
+                      ? ` · ${d.article.source.name}`
+                      : d.topic
+                      ? " · Pauta própria"
+                      : ""}
                   </span>
                 </div>
 
