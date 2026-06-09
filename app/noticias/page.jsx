@@ -9,6 +9,7 @@ export default function NoticiasPage() {
   const [filter, setFilter] = useState("relevante");
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
+  const [ingesting, setIngesting] = useState(false);
   const [msg, setMsg] = useState("");
 
   async function load() {
@@ -27,6 +28,26 @@ export default function NoticiasPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
+
+  // Vai aos feeds buscar matéria nova (e faz a triagem). Pode levar alguns segundos.
+  async function coletar() {
+    setIngesting(true);
+    setMsg("");
+    try {
+      const r = await api.ingest();
+      const n = r?.novas ?? 0;
+      setMsg(
+        n > 0
+          ? `${n} notícia(s) nova(s) coletada(s) e triada(s).`
+          : "Nenhuma notícia nova nos feeds agora."
+      );
+      await load();
+    } catch (e) {
+      setMsg(`Erro ao coletar: ${e.message}`);
+    } finally {
+      setIngesting(false);
+    }
+  }
 
   async function gerar(id, format) {
     setBusyId(id);
@@ -52,6 +73,9 @@ export default function NoticiasPage() {
   return (
     <div className="rise">
       <SectionTitle kicker="Matéria-prima" title="Notícias">
+        <Button variant="primary" disabled={ingesting} onClick={coletar}>
+          {ingesting ? "Coletando…" : "Coletar notícias"}
+        </Button>
         <Button variant="ghost" onClick={load}>
           Atualizar
         </Button>
@@ -82,7 +106,7 @@ export default function NoticiasPage() {
       {loading ? (
         <Empty>Carregando…</Empty>
       ) : articles.length === 0 ? (
-        <Empty>Nenhuma notícia aqui. Use “Coletar notícias” no calendário para buscar nos feeds.</Empty>
+        <Empty>Nenhuma notícia aqui. Clique em “Coletar notícias” para buscar nos feeds.</Empty>
       ) : (
         <div className="space-y-3">
           {articles.map((a) => (
