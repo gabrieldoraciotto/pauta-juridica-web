@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { SectionTitle, Button, Card, Badge, Empty } from "@/components/ui";
+import { Teleprompter } from "@/components/Teleprompter";
 
 export default function RoteirosPage() {
   const [drafts, setDrafts] = useState([]);
@@ -14,6 +15,7 @@ export default function RoteirosPage() {
   const [msg, setMsg] = useState("");
   const [regenOpen, setRegenOpen] = useState(null); // id com o seletor de duração aberto
   const [regenLoading, setRegenLoading] = useState(null); // id sendo regenerado
+  const [teleDraft, setTeleDraft] = useState(null); // roteiro aberto no teleprompter
 
   async function load() {
     setLoading(true);
@@ -168,6 +170,9 @@ export default function RoteirosPage() {
                     <Button variant="ghost" onClick={() => startEdit(d)}>
                       Editar
                     </Button>
+                    <Button variant="ghost" onClick={() => setTeleDraft(d)}>
+                      Teleprompter
+                    </Button>
 
                     {d.status !== "publicado" &&
                       (regenLoading === d.id ? (
@@ -221,6 +226,14 @@ export default function RoteirosPage() {
             </Card>
           ))}
         </div>
+      )}
+
+      {teleDraft && (
+        <Teleprompter
+          hook={teleDraft.hook}
+          script={teleDraft.script}
+          onClose={() => setTeleDraft(null)}
+        />
       )}
     </div>
   );
