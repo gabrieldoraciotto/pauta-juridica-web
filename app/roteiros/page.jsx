@@ -12,6 +12,8 @@ export default function RoteirosPage() {
   const [form, setForm] = useState({ hook: "", script: "", caption: "" });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [regenOpen, setRegenOpen] = useState(null); // id com o seletor de duração aberto
+  const [regenLoading, setRegenLoading] = useState(null); // id sendo regenerado
 
   async function load() {
     setLoading(true);
@@ -49,12 +51,34 @@ export default function RoteirosPage() {
     }
   }
 
+  // Gera uma nova versão do roteiro na duração escolhida (sobrescreve o mesmo roteiro).
+  async function doRegen(id, duration) {
+    setRegenLoading(id);
+    setMsg("");
+    try {
+      await api.regenerate(id, duration);
+      setRegenOpen(null);
+      setMsg("Nova versão gerada.");
+      await load();
+    } catch (e) {
+      setMsg(`Erro ao gerar nova versão: ${e.message}`);
+    } finally {
+      setRegenLoading(null);
+    }
+  }
+
   const filtros = [
     { key: "rascunho", label: "A revisar" },
     { key: "aprovado", label: "Aprovados" },
     { key: "agendado", label: "Agendados" },
     { key: "publicado", label: "Publicados" },
     { key: "rejeitado", label: "Rejeitados" },
+  ];
+
+  const duracoes = [
+    { key: "curto", label: "Curto ~30s" },
+    { key: "medio", label: "Médio ~60s" },
+    { key: "longo", label: "Longo ~90s" },
   ];
 
   return (
@@ -140,15 +164,44 @@ export default function RoteirosPage() {
                       {d.caption}
                     </p>
                   )}
-                  <div className="mt-4 flex flex-wrap gap-2 border-t border-cream-deep/50 pt-4">
+                  <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-cream-deep/50 pt-4">
                     <Button variant="ghost" onClick={() => startEdit(d)}>
                       Editar
                     </Button>
+
+                    {d.status !== "publicado" &&
+                      (regenLoading === d.id ? (
+                        <span className="px-2 py-1.5 text-sm text-muted">Gerando nova versão…</span>
+                      ) : regenOpen === d.id ? (
+                        <>
+                          <span className="self-center text-xs text-muted">Duração:</span>
+                          {duracoes.map((dur) => (
+                            <Button
+                              key={dur.key}
+                              variant="ghost"
+                              disabled={busy}
+                              onClick={() => doRegen(d.id, dur.key)}
+                            >
+                              {dur.label}
+                            </Button>
+                          ))}
+                          <Button variant="ghost" onClick={() => setRegenOpen(null)}>
+                            cancelar
+                          </Button>
+                        </>
+                      ) : (
+                        <Button variant="ghost" disabled={busy} onClick={() => setRegenOpen(d.id)}>
+                          Gerar outra versão
+                        </Button>
+                      ))}
+
                     {(d.status === "rascunho" || d.status === "rejeitado") && (
                       <Button
                         variant="primary"
-                        disabled={busy}
-                        onClick={() => act(() => api.approve(d.id), "Aprovado. Sincronize a agenda para encaixar.")}
+                        disabled={busy || regenLoading === d.id}
+                        onClick={() =>
+                          act(() => api.approve(d.id), "Aprovado. Agora é só arrastar no calendário para agendar.")
+                        }
                       >
                         Aprovar
                       </Button>
@@ -156,7 +209,7 @@ export default function RoteirosPage() {
                     {d.status === "rascunho" && (
                       <Button
                         variant="ghost"
-                        disabled={busy}
+                        disabled={busy || regenLoading === d.id}
                         onClick={() => act(() => api.reject(d.id), "Rejeitado.")}
                       >
                         Rejeitar
