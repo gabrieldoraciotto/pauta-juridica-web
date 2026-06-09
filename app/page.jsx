@@ -38,6 +38,9 @@ const MONTHS = [
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
 ];
 
+// Máximo de dias da semana que a Sara pode marcar como dias de publicação.
+const MAX_CADENCE_DAYS = 3;
+
 // ---- helpers de data (tudo em UTC meio-dia, igual ao backend, p/ não virar o dia) ----
 function ymd(d) {
   const y = d.getUTCFullYear();
@@ -175,6 +178,8 @@ export default function CalendarioPage() {
   function toggleDay(idx) {
     if (savingCadence) return;
     const has = cadenceDays.includes(idx);
+    // Não deixa adicionar um novo dia se já bateu o limite (só dá pra trocar).
+    if (!has && cadenceDays.length >= MAX_CADENCE_DAYS) return;
     const next = has
       ? cadenceDays.filter((d) => d !== idx)
       : [...cadenceDays, idx].sort((a, b) => a - b);
@@ -296,25 +301,40 @@ export default function CalendarioPage() {
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <div className="shrink-0">
               <p style={{ color: C.green }} className="font-semibold">
-                Dias de publicação
+                Dias de publicação{" "}
+                <span
+                  style={{ color: cadenceDays.length >= MAX_CADENCE_DAYS ? C.goldDark : C.muted }}
+                  className="text-sm font-normal"
+                >
+                  ({cadenceDays.length}/{MAX_CADENCE_DAYS})
+                </span>
               </p>
               <p style={{ color: C.muted }} className="text-xs">
-                Os outros dias ficam bloqueados no calendário.
+                Escolha até {MAX_CADENCE_DAYS} dias. Os demais ficam bloqueados no calendário.
               </p>
             </div>
             <div className="flex flex-wrap gap-2 sm:ml-auto">
               {WEEKDAYS.map((w) => {
                 const on = cadenceDays.includes(w.idx);
+                const capReached = cadenceDays.length >= MAX_CADENCE_DAYS;
+                const blocked = !on && capReached;
+                const disabled = savingCadence || blocked;
                 return (
                   <button
                     key={w.idx}
                     onClick={() => toggleDay(w.idx)}
-                    disabled={savingCadence}
+                    disabled={disabled}
+                    title={
+                      blocked
+                        ? `Máximo de ${MAX_CADENCE_DAYS} dias. Desmarque um para trocar.`
+                        : undefined
+                    }
                     style={{
                       backgroundColor: on ? C.green : "transparent",
-                      color: on ? "#fff" : C.muted,
-                      borderColor: on ? C.green : C.line,
+                      color: on ? "#fff" : blocked ? "#C7BCA8" : C.muted,
+                      borderColor: on ? C.green : blocked ? "#EADFCC" : C.line,
                       opacity: savingCadence ? 0.6 : 1,
+                      cursor: disabled ? "not-allowed" : "pointer",
                     }}
                     className="border rounded-lg px-3 py-2 text-sm font-semibold transition-colors min-w-[52px]"
                   >
