@@ -16,8 +16,7 @@ export default function RoteirosPage() {
   const [regenOpen, setRegenOpen] = useState(null); // id com o seletor de duração aberto
   const [regenLoading, setRegenLoading] = useState(null); // id sendo regenerado
   const [teleDraft, setTeleDraft] = useState(null); // roteiro aberto no teleprompter
-  const [oabBusy, setOabBusy] = useState(null); // id sendo verificado na OAB
-  const [oabResult, setOabResult] = useState({}); // resultado por id { conforme, alertas }
+  const [fixBusy, setFixBusy] = useState(null); // id gerando versão corrigida
 
   async function load() {
     setLoading(true);
@@ -71,17 +70,18 @@ export default function RoteirosPage() {
     }
   }
 
-  // Verifica conformidade com as regras de publicidade da OAB (só consulta, não salva).
-  async function checkOab(id) {
-    setOabBusy(id);
+  // Gera uma versão corrigida ajustando os pontos apontados pela verificação da OAB.
+  async function fixOab(id) {
+    setFixBusy(id);
     setMsg("");
     try {
-      const res = await api.checkOab(id);
-      setOabResult((prev) => ({ ...prev, [id]: res }));
+      await api.fixOab(id);
+      setMsg("Versão corrigida gerada e verificada de novo.");
+      await load();
     } catch (e) {
-      setMsg(`Erro ao verificar OAB: ${e.message}`);
+      setMsg(`Erro ao gerar versão corrigida: ${e.message}`);
     } finally {
-      setOabBusy(null);
+      setFixBusy(null);
     }
   }
 
@@ -135,121 +135,124 @@ export default function RoteirosPage() {
         <Empty>Nenhum roteiro com esse status.</Empty>
       ) : (
         <div className="space-y-4">
-          {drafts.map((d) => (
-            <Card key={d.id}>
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <Badge status={d.status} />
-                <span className="text-xs text-muted">
-                  {d.format === "carrossel" ? "Carrossel" : "Reel"}
-                  {d.article?.source ? ` · ${d.article.source.name}` : ""}
-                </span>
-              </div>
-
-              {editing === d.id ? (
-                <div className="space-y-3">
-                  <Field label="Gancho" value={form.hook} onChange={(v) => setForm({ ...form, hook: v })} />
-                  <Field
-                    label="Roteiro"
-                    value={form.script}
-                    onChange={(v) => setForm({ ...form, script: v })}
-                    rows={8}
-                  />
-                  <Field
-                    label="Legenda"
-                    value={form.caption}
-                    onChange={(v) => setForm({ ...form, caption: v })}
-                    rows={4}
-                  />
-                  <div className="flex gap-2">
-                    <Button
-                      variant="primary"
-                      disabled={busy}
-                      onClick={() => act(() => api.editDraft(d.id, form), "Roteiro salvo.")}
-                    >
-                      Salvar
-                    </Button>
-                    <Button variant="ghost" onClick={() => setEditing(null)}>
-                      Cancelar
-                    </Button>
-                  </div>
+          {drafts.map((d) => {
+            const locked = busy || regenLoading === d.id || fixBusy === d.id;
+            return (
+              <Card key={d.id}>
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <Badge status={d.status} />
+                  <span className="text-xs text-muted">
+                    {d.format === "carrossel" ? "Carrossel" : "Reel"}
+                    {d.article?.source ? ` · ${d.article.source.name}` : ""}
+                  </span>
                 </div>
-              ) : (
-                <>
-                  <p className="font-display text-lg text-forest">{d.hook}</p>
-                  <p className="mt-2 whitespace-pre-wrap text-sm text-ink">{d.script}</p>
-                  {d.caption && (
-                    <p className="mt-3 whitespace-pre-wrap rounded-xl bg-cream-deep/40 p-3 text-sm text-muted">
-                      {d.caption}
-                    </p>
-                  )}
-                  <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-cream-deep/50 pt-4">
-                    <Button variant="ghost" onClick={() => startEdit(d)}>
-                      Editar
-                    </Button>
-                    <Button variant="ghost" onClick={() => setTeleDraft(d)}>
-                      Teleprompter
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      disabled={oabBusy === d.id}
-                      onClick={() => checkOab(d.id)}
-                    >
-                      {oabBusy === d.id ? "Verificando…" : "Verificar OAB"}
-                    </Button>
 
-                    {d.status !== "publicado" &&
-                      (regenLoading === d.id ? (
-                        <span className="px-2 py-1.5 text-sm text-muted">Gerando nova versão…</span>
-                      ) : regenOpen === d.id ? (
-                        <>
-                          <span className="self-center text-xs text-muted">Duração:</span>
-                          {duracoes.map((dur) => (
-                            <Button
-                              key={dur.key}
-                              variant="ghost"
-                              disabled={busy}
-                              onClick={() => doRegen(d.id, dur.key)}
-                            >
-                              {dur.label}
-                            </Button>
-                          ))}
-                          <Button variant="ghost" onClick={() => setRegenOpen(null)}>
-                            cancelar
-                          </Button>
-                        </>
-                      ) : (
-                        <Button variant="ghost" disabled={busy} onClick={() => setRegenOpen(d.id)}>
-                          Gerar outra versão
-                        </Button>
-                      ))}
-
-                    {(d.status === "rascunho" || d.status === "rejeitado") && (
+                {editing === d.id ? (
+                  <div className="space-y-3">
+                    <Field label="Gancho" value={form.hook} onChange={(v) => setForm({ ...form, hook: v })} />
+                    <Field
+                      label="Roteiro"
+                      value={form.script}
+                      onChange={(v) => setForm({ ...form, script: v })}
+                      rows={8}
+                    />
+                    <Field
+                      label="Legenda"
+                      value={form.caption}
+                      onChange={(v) => setForm({ ...form, caption: v })}
+                      rows={4}
+                    />
+                    <div className="flex gap-2">
                       <Button
                         variant="primary"
-                        disabled={busy || regenLoading === d.id}
-                        onClick={() =>
-                          act(() => api.approve(d.id), "Aprovado. Agora é só arrastar no calendário para agendar.")
-                        }
+                        disabled={busy}
+                        onClick={() => act(() => api.editDraft(d.id, form), "Roteiro salvo e verificado.")}
                       >
-                        Aprovar
+                        Salvar
                       </Button>
-                    )}
-                    {d.status === "rascunho" && (
-                      <Button
-                        variant="ghost"
-                        disabled={busy || regenLoading === d.id}
-                        onClick={() => act(() => api.reject(d.id), "Rejeitado.")}
-                      >
-                        Rejeitar
+                      <Button variant="ghost" onClick={() => setEditing(null)}>
+                        Cancelar
                       </Button>
-                    )}
+                    </div>
                   </div>
+                ) : (
+                  <>
+                    <p className="font-display text-lg text-forest">{d.hook}</p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm text-ink">{d.script}</p>
+                    {d.caption && (
+                      <p className="mt-3 whitespace-pre-wrap rounded-xl bg-cream-deep/40 p-3 text-sm text-muted">
+                        {d.caption}
+                      </p>
+                    )}
+                    <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-cream-deep/50 pt-4">
+                      <Button variant="ghost" onClick={() => startEdit(d)}>
+                        Editar
+                      </Button>
+                      <Button variant="ghost" onClick={() => setTeleDraft(d)}>
+                        Teleprompter
+                      </Button>
 
-                  {oabResult[d.id] && oabBusy !== d.id && <OabResult result={oabResult[d.id]} />}
-                </>
-              )}
-            </Card>
-          ))}
+                      {d.status !== "publicado" &&
+                        (regenLoading === d.id ? (
+                          <span className="px-2 py-1.5 text-sm text-muted">Gerando nova versão…</span>
+                        ) : regenOpen === d.id ? (
+                          <>
+                            <span className="self-center text-xs text-muted">Duração:</span>
+                            {duracoes.map((dur) => (
+                              <Button
+                                key={dur.key}
+                                variant="ghost"
+                                disabled={locked}
+                                onClick={() => doRegen(d.id, dur.key)}
+                              >
+                                {dur.label}
+                              </Button>
+                            ))}
+                            <Button variant="ghost" onClick={() => setRegenOpen(null)}>
+                              cancelar
+                            </Button>
+                          </>
+                        ) : (
+                          <Button variant="ghost" disabled={locked} onClick={() => setRegenOpen(d.id)}>
+                            Gerar outra versão
+                          </Button>
+                        ))}
+
+                      {(d.status === "rascunho" || d.status === "rejeitado") && (
+                        <Button
+                          variant="primary"
+                          disabled={locked}
+                          onClick={() =>
+                            act(() => api.approve(d.id), "Aprovado. Agora é só arrastar no calendário para agendar.")
+                          }
+                        >
+                          Aprovar
+                        </Button>
+                      )}
+                      {d.status === "rascunho" && (
+                        <Button
+                          variant="ghost"
+                          disabled={locked}
+                          onClick={() => act(() => api.reject(d.id), "Rejeitado.")}
+                        >
+                          Rejeitar
+                        </Button>
+                      )}
+                    </div>
+
+                    {(d.oabConforme === true || d.oabConforme === false) && (
+                      <OabResult
+                        draft={d}
+                        canFix={d.status !== "publicado"}
+                        fixing={fixBusy === d.id}
+                        onFix={() => fixOab(d.id)}
+                      />
+                    )}
+                  </>
+                )}
+              </Card>
+            );
+          })}
         </div>
       )}
 
@@ -264,27 +267,33 @@ export default function RoteirosPage() {
   );
 }
 
-function OabResult({ result }) {
-  if (result.conforme) {
+function OabResult({ draft, canFix, fixing, onFix }) {
+  if (draft.oabConforme === true) {
     return (
-      <div
-        className="mt-3 rounded-xl border px-4 py-3 text-sm"
-        style={{ backgroundColor: "#E6EFEA", borderColor: "#1B4332", color: "#1B4332" }}
-      >
-        <p className="font-semibold">Conforme — não encontrei pontos de atenção.</p>
-        <p className="mt-1 text-xs" style={{ opacity: 0.8 }}>
-          Conferência automática, de apoio. A palavra final é sua.
-        </p>
+      <div className="mt-3">
+        <span
+          className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium"
+          style={{ backgroundColor: "#E6EFEA", color: "#1B4332" }}
+        >
+          OAB: conforme · conferência automática
+        </span>
       </div>
     );
   }
-  const alertas = Array.isArray(result.alertas) ? result.alertas : [];
+
+  let alertas = [];
+  try {
+    alertas = JSON.parse(draft.oabAlertas || "[]");
+  } catch {
+    alertas = [];
+  }
+
   return (
     <div
       className="mt-3 rounded-xl border px-4 py-3 text-sm"
       style={{ backgroundColor: "#FBF3E0", borderColor: "#C9A961", color: "#7a531f" }}
     >
-      <p className="font-semibold">Atenção — vale revisar:</p>
+      <p className="font-semibold">Atenção — vale revisar (OAB):</p>
       {alertas.length > 0 ? (
         <ul className="mt-2 space-y-2">
           {alertas.map((a, i) => (
@@ -303,6 +312,15 @@ function OabResult({ result }) {
           A verificação sinalizou atenção, mas não detalhou os pontos. Vale revisar manualmente.
         </p>
       )}
+
+      {canFix && (
+        <div className="mt-3">
+          <Button variant="primary" disabled={fixing} onClick={onFix}>
+            {fixing ? "Gerando versão corrigida…" : "Gerar versão corrigida"}
+          </Button>
+        </div>
+      )}
+
       <p className="mt-2 text-xs" style={{ opacity: 0.8 }}>
         Conferência automática, de apoio. A palavra final é sua.
       </p>
