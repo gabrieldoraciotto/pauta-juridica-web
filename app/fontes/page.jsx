@@ -15,6 +15,7 @@ export default function FontesPage() {
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ name: "", feedUrl: "", type: "imprensa_juridica" });
   const [busy, setBusy] = useState(false);
+  const [confirmId, setConfirmId] = useState(null); // fonte aguardando confirmação de exclusão
   const [msg, setMsg] = useState("");
 
   async function load() {
@@ -54,6 +55,21 @@ export default function FontesPage() {
   async function toggle(s) {
     await api.toggleSource(s.id, !s.active);
     await load();
+  }
+
+  async function remove(id) {
+    setBusy(true);
+    setMsg("");
+    try {
+      await api.deleteSource(id);
+      setConfirmId(null);
+      setMsg("Fonte apagada.");
+      await load();
+    } catch (e) {
+      setMsg(`Erro: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -106,6 +122,9 @@ export default function FontesPage() {
         <Empty>Nenhuma fonte cadastrada.</Empty>
       ) : (
         <div className="space-y-2">
+          <p className="mb-3 text-xs text-muted">
+            Apagar uma fonte remove as notícias dela, mas mantém os roteiros que você já criou.
+          </p>
           {sources.map((s) => (
             <div
               key={s.id}
@@ -115,14 +134,42 @@ export default function FontesPage() {
                 <p className="font-display text-base text-forest">{s.name}</p>
                 <p className="truncate text-xs text-muted">{s.feedUrl}</p>
               </div>
-              <button
-                onClick={() => toggle(s)}
-                className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
-                  s.active ? "bg-forest text-cream" : "border border-cream-deep text-muted"
-                }`}
-              >
-                {s.active ? "Ativa" : "Inativa"}
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  onClick={() => toggle(s)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    s.active ? "bg-forest text-cream" : "border border-cream-deep text-muted"
+                  }`}
+                >
+                  {s.active ? "Ativa" : "Inativa"}
+                </button>
+
+                {confirmId === s.id ? (
+                  <>
+                    <button
+                      onClick={() => remove(s.id)}
+                      disabled={busy}
+                      className="rounded-full px-3 py-1.5 text-xs font-semibold text-cream disabled:opacity-60"
+                      style={{ backgroundColor: "#8a2d2d" }}
+                    >
+                      Confirmar
+                    </button>
+                    <button
+                      onClick={() => setConfirmId(null)}
+                      className="rounded-full px-2 py-1.5 text-xs text-muted hover:text-forest"
+                    >
+                      cancelar
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setConfirmId(s.id)}
+                    className="rounded-full border border-cream-deep px-3 py-1.5 text-xs text-muted transition-colors hover:text-forest"
+                  >
+                    Apagar
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
