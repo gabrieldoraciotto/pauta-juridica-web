@@ -16,6 +16,8 @@ export default function RoteirosPage() {
   const [regenOpen, setRegenOpen] = useState(null); // id com o seletor de duração aberto
   const [regenLoading, setRegenLoading] = useState(null); // id sendo regenerado
   const [teleDraft, setTeleDraft] = useState(null); // roteiro aberto no teleprompter
+  const [oabBusy, setOabBusy] = useState(null); // id sendo verificado na OAB
+  const [oabResult, setOabResult] = useState({}); // resultado por id { conforme, alertas }
 
   async function load() {
     setLoading(true);
@@ -66,6 +68,20 @@ export default function RoteirosPage() {
       setMsg(`Erro ao gerar nova versão: ${e.message}`);
     } finally {
       setRegenLoading(null);
+    }
+  }
+
+  // Verifica conformidade com as regras de publicidade da OAB (só consulta, não salva).
+  async function checkOab(id) {
+    setOabBusy(id);
+    setMsg("");
+    try {
+      const res = await api.checkOab(id);
+      setOabResult((prev) => ({ ...prev, [id]: res }));
+    } catch (e) {
+      setMsg(`Erro ao verificar OAB: ${e.message}`);
+    } finally {
+      setOabBusy(null);
     }
   }
 
@@ -173,6 +189,13 @@ export default function RoteirosPage() {
                     <Button variant="ghost" onClick={() => setTeleDraft(d)}>
                       Teleprompter
                     </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={oabBusy === d.id}
+                      onClick={() => checkOab(d.id)}
+                    >
+                      {oabBusy === d.id ? "Verificando…" : "Verificar OAB"}
+                    </Button>
 
                     {d.status !== "publicado" &&
                       (regenLoading === d.id ? (
@@ -221,6 +244,8 @@ export default function RoteirosPage() {
                       </Button>
                     )}
                   </div>
+
+                  {oabResult[d.id] && oabBusy !== d.id && <OabResult result={oabResult[d.id]} />}
                 </>
               )}
             </Card>
@@ -235,6 +260,52 @@ export default function RoteirosPage() {
           onClose={() => setTeleDraft(null)}
         />
       )}
+    </div>
+  );
+}
+
+function OabResult({ result }) {
+  if (result.conforme) {
+    return (
+      <div
+        className="mt-3 rounded-xl border px-4 py-3 text-sm"
+        style={{ backgroundColor: "#E6EFEA", borderColor: "#1B4332", color: "#1B4332" }}
+      >
+        <p className="font-semibold">Conforme — não encontrei pontos de atenção.</p>
+        <p className="mt-1 text-xs" style={{ opacity: 0.8 }}>
+          Conferência automática, de apoio. A palavra final é sua.
+        </p>
+      </div>
+    );
+  }
+  const alertas = Array.isArray(result.alertas) ? result.alertas : [];
+  return (
+    <div
+      className="mt-3 rounded-xl border px-4 py-3 text-sm"
+      style={{ backgroundColor: "#FBF3E0", borderColor: "#C9A961", color: "#7a531f" }}
+    >
+      <p className="font-semibold">Atenção — vale revisar:</p>
+      {alertas.length > 0 ? (
+        <ul className="mt-2 space-y-2">
+          {alertas.map((a, i) => (
+            <li key={i}>
+              <span className="font-medium">{a.problema}</span>
+              {a.sugestao && (
+                <span className="mt-0.5 block text-xs" style={{ opacity: 0.85 }}>
+                  Sugestão: {a.sugestao}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1">
+          A verificação sinalizou atenção, mas não detalhou os pontos. Vale revisar manualmente.
+        </p>
+      )}
+      <p className="mt-2 text-xs" style={{ opacity: 0.8 }}>
+        Conferência automática, de apoio. A palavra final é sua.
+      </p>
     </div>
   );
 }
