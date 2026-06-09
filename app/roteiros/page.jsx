@@ -13,10 +13,10 @@ export default function RoteirosPage() {
   const [form, setForm] = useState({ hook: "", script: "", caption: "" });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
-  const [regenOpen, setRegenOpen] = useState(null); // id com o seletor de duração aberto
-  const [regenLoading, setRegenLoading] = useState(null); // id sendo regenerado
   const [teleDraft, setTeleDraft] = useState(null); // roteiro aberto no teleprompter
   const [fixBusy, setFixBusy] = useState(null); // id gerando versão corrigida
+  const [partBusy, setPartBusy] = useState(null); // "hook" | "script" | "caption" em geração
+  const [scriptDurOpen, setScriptDurOpen] = useState(false); // opções de duração do roteiro
 
   async function load() {
     setLoading(true);
@@ -37,6 +37,13 @@ export default function RoteirosPage() {
   function startEdit(d) {
     setEditing(d.id);
     setForm({ hook: d.hook, script: d.script, caption: d.caption });
+    setScriptDurOpen(false);
+    setMsg("");
+  }
+
+  function cancelEdit() {
+    setEditing(null);
+    setScriptDurOpen(false);
   }
 
   async function act(fn, label) {
@@ -46,6 +53,7 @@ export default function RoteirosPage() {
       await fn();
       setMsg(label);
       setEditing(null);
+      setScriptDurOpen(false);
       await load();
     } catch (e) {
       setMsg(`Erro: ${e.message}`);
@@ -54,19 +62,24 @@ export default function RoteirosPage() {
     }
   }
 
-  // Gera uma nova versão do roteiro na duração escolhida (sobrescreve o mesmo roteiro).
-  async function doRegen(id, duration) {
-    setRegenLoading(id);
+  // Regenera UMA parte do roteiro e coloca o texto novo no formulário (não salva).
+  async function regenPart(id, part, duration) {
+    setPartBusy(part);
     setMsg("");
     try {
-      await api.regenerate(id, duration);
-      setRegenOpen(null);
-      setMsg("Nova versão gerada.");
-      await load();
+      const novo = await api.regenerate(id, {
+        part,
+        duration,
+        hook: form.hook,
+        script: form.script,
+        caption: form.caption,
+      });
+      setForm((prev) => ({ ...prev, ...novo }));
+      if (part === "script") setScriptDurOpen(false);
     } catch (e) {
-      setMsg(`Erro ao gerar nova versão: ${e.message}`);
+      setMsg(`Erro ao gerar: ${e.message}`);
     } finally {
-      setRegenLoading(null);
+      setPartBusy(null);
     }
   }
 
@@ -136,7 +149,7 @@ export default function RoteirosPage() {
       ) : (
         <div className="space-y-4">
           {drafts.map((d) => {
-            const locked = busy || regenLoading === d.id || fixBusy === d.id;
+            const locked = busy || fixBusy === d.id;
             return (
               <Card key={d.id}>
                 <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -148,29 +161,79 @@ export default function RoteirosPage() {
                 </div>
 
                 {editing === d.id ? (
-                  <div className="space-y-3">
-                    <Field label="Gancho" value={form.hook} onChange={(v) => setForm({ ...form, hook: v })} />
-                    <Field
-                      label="Roteiro"
-                      value={form.script}
-                      onChange={(v) => setForm({ ...form, script: v })}
-                      rows={8}
-                    />
-                    <Field
-                      label="Legenda"
-                      value={form.caption}
-                      onChange={(v) => setForm({ ...form, caption: v })}
-                      rows={4}
-                    />
-                    <div className="flex gap-2">
+                  <div className="space-y-4">
+                    {/* Gancho */}
+                    <div className="space-y-2">
+                      <Field label="Gancho" value={form.hook} onChange={(v) => setForm({ ...form, hook: v })} />
+                      {partBusy === "hook" ? (
+                        <span className="text-xs text-muted">Gerando outro gancho…</span>
+                      ) : (
+                        <Button variant="ghost" disabled={!!partBusy} onClick={() => regenPart(d.id, "hook")}>
+                          Gerar outro gancho
+                        </Button>
+                      )}
+                    </div>
+
+                    {/* Roteiro */}
+                    <div className="space-y-2">
+                      <Field
+                        label="Roteiro"
+                        value={form.script}
+                        onChange={(v) => setForm({ ...form, script: v })}
+                        rows={8}
+                      />
+                      {partBusy === "script" ? (
+                        <span className="text-xs text-muted">Gerando outro roteiro…</span>
+                      ) : scriptDurOpen ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-muted">Duração:</span>
+                          {duracoes.map((dur) => (
+                            <Button
+                              key={dur.key}
+                              variant="ghost"
+                              disabled={!!partBusy}
+                              onClick={() => regenPart(d.id, "script", dur.key)}
+                            >
+                              {dur.label}
+                            </Button>
+                          ))}
+                          <Button variant="ghost" onClick={() => setScriptDurOpen(false)}>
+                            cancelar
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button variant="ghost" disabled={!!partBusy} onClick={() => setScriptDurOpen(true)}>
+                          Gerar outro roteiro
+                        </Button>
+                      )}
+                    </div>
+
+                    {/* Legenda */}
+                    <div className="space-y-2">
+                      <Field
+                        label="Legenda"
+                        value={form.caption}
+                        onChange={(v) => setForm({ ...form, caption: v })}
+                        rows={4}
+                      />
+                      {partBusy === "caption" ? (
+                        <span className="text-xs text-muted">Gerando outra legenda…</span>
+                      ) : (
+                        <Button variant="ghost" disabled={!!partBusy} onClick={() => regenPart(d.id, "caption")}>
+                          Gerar outra legenda
+                        </Button>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2 border-t border-cream-deep/50 pt-4">
                       <Button
                         variant="primary"
-                        disabled={busy}
+                        disabled={busy || !!partBusy}
                         onClick={() => act(() => api.editDraft(d.id, form), "Roteiro salvo e verificado.")}
                       >
                         Salvar
                       </Button>
-                      <Button variant="ghost" onClick={() => setEditing(null)}>
+                      <Button variant="ghost" disabled={!!partBusy} onClick={cancelEdit}>
                         Cancelar
                       </Button>
                     </div>
@@ -191,32 +254,6 @@ export default function RoteirosPage() {
                       <Button variant="ghost" onClick={() => setTeleDraft(d)}>
                         Teleprompter
                       </Button>
-
-                      {d.status !== "publicado" &&
-                        (regenLoading === d.id ? (
-                          <span className="px-2 py-1.5 text-sm text-muted">Gerando nova versão…</span>
-                        ) : regenOpen === d.id ? (
-                          <>
-                            <span className="self-center text-xs text-muted">Duração:</span>
-                            {duracoes.map((dur) => (
-                              <Button
-                                key={dur.key}
-                                variant="ghost"
-                                disabled={locked}
-                                onClick={() => doRegen(d.id, dur.key)}
-                              >
-                                {dur.label}
-                              </Button>
-                            ))}
-                            <Button variant="ghost" onClick={() => setRegenOpen(null)}>
-                              cancelar
-                            </Button>
-                          </>
-                        ) : (
-                          <Button variant="ghost" disabled={locked} onClick={() => setRegenOpen(d.id)}>
-                            Gerar outra versão
-                          </Button>
-                        ))}
 
                       {(d.status === "rascunho" || d.status === "rejeitado") && (
                         <Button
