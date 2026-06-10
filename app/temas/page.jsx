@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
 import { SectionTitle } from "@/components/ui";
 
@@ -76,19 +77,45 @@ function diasAte(month, day) {
 
 export default function TemasPage() {
   const [format, setFormat] = useState("reel");
-  const [busyTopic, setBusyTopic] = useState(null);
+  const [selected, setSelected] = useState(null); // pauta aberta no painel
+  const [explanation, setExplanation] = useState(null);
+  const [loadingExpl, setLoadingExpl] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [msg, setMsg] = useState("");
 
-  async function criar(topic) {
-    setBusyTopic(topic);
+  // Abre o painel e busca a explicação do tema/data.
+  async function abrir(item) {
+    setSelected(item);
+    setExplanation(null);
+    setLoadingExpl(true);
     setMsg("");
     try {
-      await api.createFromTopic({ topic, format });
+      const r = await api.explainTopic(item.topic);
+      setExplanation(r.explanation);
+    } catch (e) {
+      setExplanation("Não consegui carregar a explicação agora — mas você ainda pode criar o roteiro.");
+    } finally {
+      setLoadingExpl(false);
+    }
+  }
+
+  function fechar() {
+    setSelected(null);
+    setExplanation(null);
+  }
+
+  // Confirma e cria o roteiro a partir da pauta aberta.
+  async function confirmar() {
+    if (!selected) return;
+    setCreating(true);
+    try {
+      await api.createFromTopic({ topic: selected.topic, format });
       setMsg("Roteiro escrito e conferido pela OAB. Está em Roteiros, na fila a revisar.");
+      fechar();
     } catch (e) {
       setMsg(`Não consegui gerar agora: ${e.message}`);
     } finally {
-      setBusyTopic(null);
+      setCreating(false);
     }
   }
 
@@ -146,11 +173,10 @@ export default function TemasPage() {
             </div>
           </div>
           <button
-            onClick={() => criar(proxima.topic)}
-            disabled={busyTopic === proxima.topic}
-            className="shrink-0 self-start rounded-full bg-gold px-5 py-2 text-sm font-semibold text-forest transition-opacity hover:opacity-90 disabled:opacity-60 sm:self-auto"
+            onClick={() => abrir(proxima)}
+            className="shrink-0 self-start rounded-full bg-gold px-5 py-2 text-sm font-semibold text-forest transition-opacity hover:opacity-90 sm:self-auto"
           >
-            {busyTopic === proxima.topic ? "Escrevendo…" : "Criar roteiro"}
+            Ver e criar
           </button>
         </div>
       </div>
@@ -159,15 +185,14 @@ export default function TemasPage() {
         {demais.map((d) => (
           <button
             key={d.label}
-            onClick={() => criar(d.topic)}
-            disabled={busyTopic === d.topic}
-            className="group flex flex-col rounded-2xl border border-cream-deep bg-cream-card p-4 text-left transition-colors hover:border-forest disabled:opacity-60"
+            onClick={() => abrir(d)}
+            className="group flex flex-col rounded-2xl border border-cream-deep bg-cream-card p-4 text-left transition-colors hover:border-forest"
           >
             <span className="font-display text-2xl leading-none text-gold-deep">{MESES[d.month - 1]}</span>
             <span className="mt-2 font-display text-sm leading-tight text-forest">{d.label}</span>
             <span className="mt-1 text-xs text-muted">{d.quando}</span>
             <span className="mt-3 text-xs font-medium text-forest/70 group-hover:text-forest">
-              {busyTopic === d.topic ? "Escrevendo…" : "Criar roteiro →"}
+              Ver e criar →
             </span>
           </button>
         ))}
@@ -184,17 +209,90 @@ export default function TemasPage() {
               {g.itens.map((t) => (
                 <button
                   key={t.label}
-                  onClick={() => criar(t.topic)}
-                  disabled={busyTopic === t.topic}
-                  className="rounded-full border border-cream-deep bg-cream-card px-4 py-2 text-sm text-ink transition-colors hover:border-forest hover:bg-forest hover:text-cream disabled:opacity-60"
+                  onClick={() => abrir(t)}
+                  className="rounded-full border border-cream-deep bg-cream-card px-4 py-2 text-sm text-ink transition-colors hover:border-forest hover:bg-forest hover:text-cream"
                 >
-                  {busyTopic === t.topic ? "Escrevendo…" : t.label}
+                  {t.label}
                 </button>
               ))}
             </div>
           </div>
         ))}
       </div>
+
+      {selected && (
+        <ExplainModal
+          item={selected}
+          format={format}
+          explanation={explanation}
+          loading={loadingExpl}
+          creating={creating}
+          onCreate={confirmar}
+          onClose={fechar}
+        />
+      )}
     </div>
+  );
+}
+
+function ExplainModal({ item, format, explanation, loading, creating, onCreate, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape" && !creating) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, creating]);
+
+  if (typeof document === "undefined") return null;
+
+  const paras = (explanation || "").split("\n").filter((p) => p.trim());
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: "rgba(27, 40, 40, 0.55)" }}
+      onClick={() => !creating && onClose()}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-3xl bg-cream shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-cream-deep px-6 py-4">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-gold-deep">Sobre esta pauta</p>
+          <h2 className="font-display text-xl leading-tight text-forest">{item.label}</h2>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          {loading ? (
+            <p className="text-sm text-muted">Explicando o assunto…</p>
+          ) : (
+            <div className="space-y-3 text-sm leading-relaxed text-ink">
+              {paras.map((p, i) => (
+                <p key={i}>{p}</p>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-cream-deep px-6 py-4">
+          <button
+            onClick={onClose}
+            disabled={creating}
+            className="rounded-full px-4 py-2 text-sm text-muted transition-colors hover:text-forest disabled:opacity-60"
+          >
+            Fechar
+          </button>
+          <button
+            onClick={onCreate}
+            disabled={loading || creating}
+            className="rounded-full bg-forest px-5 py-2 text-sm font-semibold text-cream transition-opacity hover:opacity-90 disabled:opacity-60"
+          >
+            {creating ? "Escrevendo…" : `Criar roteiro · ${format === "carrossel" ? "Carrossel" : "Reel"}`}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }
