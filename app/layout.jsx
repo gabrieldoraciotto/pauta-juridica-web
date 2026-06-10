@@ -1,6 +1,7 @@
 import "./globals.css";
 import { Fraunces, Mulish } from "next/font/google";
 import { Nav } from "@/components/Nav";
+import { AuthGate } from "@/components/AuthGate";
 
 // Display serifada e característica (títulos) — pega a pegada clássica da banca.
 const display = Fraunces({
@@ -26,8 +27,10 @@ export default function RootLayout({ children }) {
   return (
     <html lang="pt-BR" className={`${display.variable} ${body.variable}`}>
       <body className="font-body min-h-screen">
-        <Nav />
-        <main className="mx-auto max-w-6xl px-5 pb-24 pt-8">{children}</main>
+        <AuthGate>
+          <Nav />
+          <main className="mx-auto max-w-6xl px-5 pb-24 pt-8">{children}</main>
+        </AuthGate>
       </body>
     </html>
   );

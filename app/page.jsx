@@ -9,6 +9,24 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "";
 
+// Toda chamada do calendário leva a senha do escritório (mesma chave que o
+// lib/api usa). Num 401, avisa a tela de entrada (AuthGate) e ela reaparece.
+function authFetch(url, opts = {}) {
+  let key = "";
+  try {
+    key = localStorage.getItem("pj_key") || "";
+  } catch {}
+  return fetch(url, {
+    ...opts,
+    headers: { ...(opts.headers || {}), "x-app-key": key },
+  }).then((res) => {
+    if (res.status === 401 && typeof window !== "undefined") {
+      window.dispatchEvent(new Event("pj-auth"));
+    }
+    return res;
+  });
+}
+
 const C = {
   bg: "#F5F0E8",
   bgAlt: "#E8DCC8",
@@ -74,10 +92,10 @@ export default function CalendarioPage() {
   const loadAll = useCallback(async () => {
     try {
       const [s, q, cal, pend] = await Promise.all([
-        fetch(`${API}/settings`).then((r) => r.json()),
-        fetch(`${API}/drafts?status=aprovado`).then((r) => r.json()),
-        fetch(`${API}/calendar`).then((r) => r.json()),
-        fetch(`${API}/drafts?status=rascunho`).then((r) => r.json()),
+        authFetch(`${API}/settings`).then((r) => r.json()),
+        authFetch(`${API}/drafts?status=aprovado`).then((r) => r.json()),
+        authFetch(`${API}/calendar`).then((r) => r.json()),
+        authFetch(`${API}/drafts?status=rascunho`).then((r) => r.json()),
       ]);
       setCadenceDays(Array.isArray(s?.cadenceDays) ? s.cadenceDays : []);
       setQueue(Array.isArray(q) ? q : []);
@@ -105,7 +123,7 @@ export default function CalendarioPage() {
     if (!id || busy) return;
     setBusy(true);
     try {
-      const res = await fetch(`${API}/drafts/${id}/schedule`, {
+      const res = await authFetch(`${API}/drafts/${id}/schedule`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date: dateStr }),
@@ -129,7 +147,7 @@ export default function CalendarioPage() {
     if (busy) return;
     setBusy(true);
     try {
-      await fetch(`${API}/drafts/${id}/unschedule`, { method: "POST" });
+      await authFetch(`${API}/drafts/${id}/unschedule`, { method: "POST" });
       setModal(null);
       await loadAll();
       setMsg({ type: "info", text: "Roteiro devolvido para a fila." });
@@ -142,7 +160,7 @@ export default function CalendarioPage() {
     if (busy) return;
     setBusy(true);
     try {
-      await fetch(`${API}/drafts/${id}/publish`, { method: "POST" });
+      await authFetch(`${API}/drafts/${id}/publish`, { method: "POST" });
       setModal(null);
       await loadAll();
       setMsg({ type: "info", text: "Roteiro marcado como publicado." });
@@ -154,7 +172,7 @@ export default function CalendarioPage() {
   async function saveCadence(newDays) {
     setSavingCadence(true);
     try {
-      const res = await fetch(`${API}/settings`, {
+      const res = await authFetch(`${API}/settings`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cadenceDays: newDays }),
