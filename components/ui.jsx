@@ -3,7 +3,8 @@
 const STATUS_STYLES = {
   novo: "bg-cream-deep text-muted",
   relevante: "bg-forest/10 text-forest",
-  descartado: "bg-ink/5 text-muted line-through",
+  descartado: "bg-ink/5 text-muted",
+  lida: "bg-gold/10 text-gold-deep",
   rascunho: "bg-gold/15 text-gold-deep",
   aprovado: "bg-forest/10 text-forest",
   rejeitado: "bg-ink/5 text-muted",

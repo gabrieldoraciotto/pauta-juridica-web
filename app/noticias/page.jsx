@@ -65,10 +65,17 @@ export default function NoticiasPage() {
 
   const filtros = [
     { key: "relevante", label: "Relevantes" },
-    { key: "novo", label: "Novas" },
-    { key: "descartado", label: "Descartadas" },
-    { key: "", label: "Todas" },
+    { key: "descartado", label: "Menor relevância" },
+    { key: "lida", label: "Já lidas" },
   ];
+
+  // Rótulos amigáveis do selo de status (o banco guarda os valores "crus").
+  const STATUS_LABEL = {
+    relevante: "Relevante",
+    descartado: "Menor relevância",
+    lida: "Já lida",
+    novo: "Nova",
+  };
 
   return (
     <div className="rise">
@@ -114,7 +121,12 @@ export default function NoticiasPage() {
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
                   <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                    <Badge status={a.status} />
+                    {a.isNew && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-gold/20 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-gold-deep">
+                        ✦ nova notícia
+                      </span>
+                    )}
+                    <Badge status={a.status}>{STATUS_LABEL[a.status] || a.status}</Badge>
                     {typeof a.relevanceScore === "number" && (
                       <span className="text-xs font-semibold text-gold-deep">
                         relevância {a.relevanceScore}
