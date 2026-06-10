@@ -17,6 +17,7 @@ export default function RoteirosPage() {
   const [fixBusy, setFixBusy] = useState(null); // id gerando versão corrigida
   const [partBusy, setPartBusy] = useState(null); // "hook" | "script" | "caption" em geração
   const [scriptDurOpen, setScriptDurOpen] = useState(false); // opções de duração do roteiro
+  const [confirmDelId, setConfirmDelId] = useState(null); // id aguardando confirmação de apagar
 
   async function load() {
     setLoading(true);
@@ -276,6 +277,35 @@ export default function RoteirosPage() {
                         >
                           Rejeitar
                         </Button>
+                      )}
+
+                      {confirmDelId === d.id ? (
+                        <span className="ml-auto flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              setConfirmDelId(null);
+                              act(() => api.deleteDraft(d.id), "Roteiro apagado.");
+                            }}
+                            disabled={busy}
+                            className="rounded-full px-4 py-2 text-sm font-semibold text-cream disabled:opacity-60"
+                            style={{ backgroundColor: "#8a2d2d" }}
+                          >
+                            Confirmar
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelId(null)}
+                            className="rounded-full px-2 py-2 text-sm text-muted hover:text-forest"
+                          >
+                            cancelar
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDelId(d.id)}
+                          className="ml-auto rounded-full border border-cream-deep px-4 py-2 text-sm text-muted transition-colors hover:text-forest"
+                        >
+                          Apagar
+                        </button>
                       )}
                     </div>
 
