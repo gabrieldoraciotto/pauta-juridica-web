@@ -406,6 +406,8 @@ export default function CalendarioPage() {
             style={{ backgroundColor: C.card, borderColor: C.line }}
             className="border rounded-2xl p-3 lg:p-4 flex-1 min-w-0"
           >
+            {/* Desktop: grade do mês */}
+            <div className="hidden lg:block">
             <div className="grid grid-cols-7 gap-1 lg:gap-2 mb-1">
               {WEEKDAYS.map((w) => (
                 <div
@@ -512,14 +514,29 @@ export default function CalendarioPage() {
                 );
               })}
             </div>
+            </div>{/* fim grade desktop */}
+
+            {/* Mobile: agenda em lista (no lugar da grade espremida) */}
+            <div className="lg:hidden">
+              <MobileAgenda
+                grid={grid}
+                cadenceDays={cadenceDays}
+                byDay={byDay}
+                todayStr={todayStr}
+                selectedId={selectedId}
+                onDayClick={(cell) => onCellClick(cell, true)}
+              />
+            </div>
           </div>
 
           {/* Dashboard */}
           <div className="w-full lg:w-72 shrink-0 flex flex-col gap-3">
-            <Metric label="Aguardando aprovação" value={pendingCount} color={C.goldDark} />
-            <Metric label="Prontos na fila" value={queue.length} color={C.green} />
-            <Metric label="Agendados" value={agendadosCount} color={C.greenSoft} />
-            <Metric label="Publicados" value={publicadosCount} color={C.muted} />
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
+              <Metric label="Aguardando aprovação" value={pendingCount} color={C.goldDark} />
+              <Metric label="Prontos na fila" value={queue.length} color={C.green} />
+              <Metric label="Agendados" value={agendadosCount} color={C.greenSoft} />
+              <Metric label="Publicados" value={publicadosCount} color={C.muted} />
+            </div>
 
             <div
               style={{ backgroundColor: C.card, borderColor: C.line }}
@@ -788,6 +805,98 @@ function DayModal({ dateStr, items, onClose, onOpenDraft }) {
         </div>
       </div>
     </Overlay>
+  );
+}
+
+function MobileAgenda({ grid, cadenceDays, byDay, todayStr, selectedId, onDayClick }) {
+  const dias = grid.filter((c) => c.inMonth && cadenceDays.includes(c.d.getUTCDay()));
+
+  if (cadenceDays.length === 0) {
+    return (
+      <p style={{ color: C.muted }} className="text-sm py-6 text-center">
+        Escolha seus dias de publicação acima para montar a agenda.
+      </p>
+    );
+  }
+  if (dias.length === 0) {
+    return (
+      <p style={{ color: C.muted }} className="text-sm py-6 text-center">
+        Nenhum dia de publicação neste mês.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {dias.map((cell) => {
+        const dateStr = ymd(cell.d);
+        const items = byDay[dateStr] || [];
+        const isToday = dateStr === todayStr;
+        const wd = WEEKDAYS[cell.d.getUTCDay()];
+        return (
+          <button
+            key={dateStr}
+            onClick={() => onDayClick(cell)}
+            style={{
+              backgroundColor: C.bg,
+              borderColor: isToday ? C.gold : C.line,
+              borderWidth: isToday ? 2 : 1,
+            }}
+            className="w-full border rounded-xl p-3 text-left flex gap-3 items-start"
+          >
+            <div
+              style={{ backgroundColor: C.green, color: "#fff" }}
+              className="shrink-0 w-12 flex flex-col items-center justify-center rounded-lg py-1.5"
+            >
+              <span className="text-[10px] uppercase tracking-wide" style={{ color: "rgba(255,255,255,0.7)" }}>
+                {wd.short}
+              </span>
+              <span style={serif} className="text-xl font-semibold leading-none">
+                {cell.d.getUTCDate()}
+              </span>
+            </div>
+
+            <div className="flex-1 min-w-0 pt-0.5">
+              {items.length === 0 ? (
+                <p style={{ color: selectedId ? C.goldDark : C.muted }} className="text-sm">
+                  {selectedId ? "Toque para agendar aqui" : "Livre"}
+                </p>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {items.map((dr) => {
+                    const b = formatBadgeStyle(dr.format);
+                    const published = dr.status === "publicado";
+                    return (
+                      <div key={dr.id} className="flex items-start gap-2">
+                        <span
+                          style={{ backgroundColor: b.backgroundColor, color: b.color }}
+                          className="shrink-0 text-[9px] font-bold uppercase rounded px-1.5 py-0.5 mt-0.5"
+                        >
+                          {b.label}
+                        </span>
+                        <span
+                          style={{ color: published ? C.muted : C.ink }}
+                          className="text-sm leading-snug line-clamp-2"
+                        >
+                          {published ? "✓ " : ""}
+                          {dr.hook}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {selectedId && (
+              <span style={{ color: C.goldDark }} className="shrink-0 text-xl leading-none pt-0.5">
+                ＋
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
